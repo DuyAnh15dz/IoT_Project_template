@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IoT Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #e9eff1;
+    --surface: #ffffff;
+    --ink: #12242c;
+    --muted: #5d727c;
+    --line: #d3dde1;
+    --accent: #0b7a6f;
+    --accent-soft: #d8efec;
+    --ok: #1f8a4c;
+    --bad: #b4491b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1a1f;
+      --surface: #15252c;
+      --ink: #e6f0f2;
+      --muted: #93aab3;
+      --line: #27404a;
+      --accent: #4fd1bf;
+      --accent-soft: #19393a;
+      --ok: #5fd08a;
+      --bad: #f0976b;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.45;
+  }
+
+  header {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px 20px 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px 24px;
+  }
+  h1 { margin: 0; font-size: 1.5rem; font-weight: 700; letter-spacing: -0.01em; }
+  .device { color: var(--muted); font-size: 0.95rem; }
+
+  .states { display: flex; gap: 16px; font-size: 0.9rem; color: var(--muted); }
+  .state::before {
+    content: "";
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    background: var(--muted);
+  }
+  .state[data-state="up"]::before { background: var(--ok); }
+  .state[data-state="down"]::before { background: var(--bad); }
+
+  .layout {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 20px;
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 780px) { .layout { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .reading {
+    display: flex;
+    width: 100%;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    padding: 16px 18px;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    border-left: 4px solid transparent;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .reading[aria-pressed="true"] { border-left-color: var(--accent); background: var(--accent-soft); }
+  .reading:focus-visible, .switch:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .reading .name { color: var(--muted); }
+  .reading .value { font-size: 2rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .reading .unit { margin-left: 4px; font-size: 1rem; font-weight: 500; color: var(--muted); }
+
+  .empty { margin: 0; padding: 20px 18px; color: var(--muted); }
+
+  .control {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+  }
+  .switch {
+    min-width: 72px;
+    padding: 8px 14px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .switch[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .switch:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .chart-head { padding: 16px 20px 0; }
+  .chart-head h2 { margin: 0; font-size: 1.1rem; font-weight: 600; }
+  .chart-head p { margin: 2px 0 0; color: var(--muted); font-size: 0.9rem; }
+  .chart-wrap { position: relative; height: 360px; padding: 12px 16px 16px; }
+  @media (max-width: 780px) { .chart-wrap { height: 280px; } }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>IoT Monitor</h1>
+    <div class="device">Thiết bị: <span id="device-name">—</span></div>
+  </div>
+  <div class="states">
+    <span class="state" id="link-state" data-state="down">Server: đang kết nối</span>
+    <span class="state" id="device-state" data-state="unknown">Thiết bị: chưa rõ</span>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="panel" aria-label="Giá trị hiện tại">
+    <div id="readings"></div>
+    <p class="empty" id="empty">Chưa có dữ liệu. Hãy bật ESP32 (hoặc chạy <code>npm run simulate</code>).</p>
+    <div class="control">
+      <span>Relay</span>
+      <button class="switch" id="relay" role="switch" aria-checked="false" disabled>Tắt</button>
+    </div>
+  </aside>
+
+  <section class="panel" aria-label="Biểu đồ">
+    <div class="chart-head">
+      <h2 id="chart-title">Chọn một cảm biến</h2>
+      <p>60 phút gần nhất, tự cập nhật theo thời gian thực</p>
+    </div>
+    <div class="chart-wrap"><canvas id="chart"></canvas></div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+  const UNITS = { temperature: '°C', humidity: '%', light: 'lux' };
+  const NAMES = { temperature: 'Nhiệt độ', humidity: 'Độ ẩm', light: 'Ánh sáng' };
+  const MAX_POINTS = 300;
+
+  const $ = (id) => document.getElementById(id);
+  const readingsEl = $('readings');
+  const emptyEl = $('empty');
+  const relayBtn = $('relay');
+
+  let deviceId = null;
+  let selected = null;
+  let relayOn = false;
+  let chart;
+
+  const fmt = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
+  const timeLabel = (ts) => new Date(ts).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  // ---------- Biểu đồ ----------
+  function initChart() {
+    chart = new Chart($('chart'), {
+      type: 'line',
+      data: { labels: [], datasets: [{ data: [], borderWidth: 2, pointRadius: 0, tension: 0.3, fill: true }] },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { display: false } },
+        scales: { x: { ticks: { maxTicksLimit: 6 } }, y: { grace: '10%' } },
+      },
+    });
+    applyTheme();
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+  }
+
+  function applyTheme() {
+    const accent = css('--accent');
+    const ds = chart.data.datasets[0];
+    ds.borderColor = accent;
+    ds.backgroundColor = accent + '22';
+    for (const axis of Object.values(chart.options.scales)) {
+      axis.ticks.color = css('--muted');
+      axis.grid = { color: css('--line') };
+    }
+    chart.update('none');
+  }
+
+  function pushPoint(ts, value) {
+    chart.data.labels.push(timeLabel(ts));
+    chart.data.datasets[0].data.push(value);
+    if (chart.data.labels.length > MAX_POINTS) {
+      chart.data.labels.shift();
+      chart.data.datasets[0].data.shift();
+    }
+    chart.update('none');
+  }
+
+  async function loadHistory(sensor) {
+    try {
+      const res = await fetch(`/api/history?sensor=${encodeURIComponent(sensor)}&minutes=60`);
+      const rows = await res.json();
+      if (sensor !== selected) return; // người dùng đã chọn sensor khác
+      const recent = rows.slice(-MAX_POINTS);
+      chart.data.labels = recent.map((r) => timeLabel(r.ts));
+      chart.data.datasets[0].data = recent.map((r) => r.value);
+      chart.update('none');
+    } catch (err) {
+      console.error('Không tải được lịch sử:', err);
+    }
+  }
+
+  function select(sensor) {
+    selected = sensor;
+    for (const btn of readingsEl.children) {
+      btn.setAttribute('aria-pressed', String(btn.dataset.sensor === sensor));
+    }
+    const unit = UNITS[sensor] ? ` (${UNITS[sensor]})` : '';
+    $('chart-title').textContent = (NAMES[sensor] || sensor) + unit;
+    loadHistory(sensor);
+  }
+
+  // ---------- Giá trị hiện tại ----------
+  function renderReading(sensor, value) {
+    let btn = readingsEl.querySelector(`[data-sensor="${CSS.escape(sensor)}"]`);
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.className = 'reading';
+      btn.dataset.sensor = sensor;
+      btn.setAttribute('aria-pressed', 'false');
+      btn.innerHTML = '<span class="name"></span><span class="value"><span class="num"></span><span class="unit"></span></span>';
+      btn.querySelector('.name').textContent = NAMES[sensor] || sensor;
+      btn.querySelector('.unit').textContent = UNITS[sensor] || '';
+      btn.addEventListener('click', () => select(sensor));
+      readingsEl.appendChild(btn);
+      emptyEl.hidden = true;
+      if (!selected) select(sensor);
+    }
+    btn.querySelector('.num').textContent = fmt(value);
+  }
+
+  function renderRelay() {
+    relayBtn.setAttribute('aria-checked', String(relayOn));
+    relayBtn.textContent = relayOn ? 'Bật' : 'Tắt';
+  }
+
+  function onReading(sensor, value, ts, live) {
+    if (sensor === 'relay') {
+      relayOn = value === 1;
+      renderRelay();
+      return;
+    }
+    renderReading(sensor, value);
+    if (live && sensor === selected) pushPoint(ts, value);
+  }
+
+  function setState(el, state, text) {
+    el.dataset.state = state;
+    el.textContent = text;
+  }
+
+  function setDeviceState(status) {
+    const el = $('device-state');
+    if (status === 'online') setState(el, 'up', 'Thiết bị: online');
+    else if (status === 'offline') setState(el, 'down', 'Thiết bị: offline');
+    else setState(el, 'unknown', 'Thiết bị: chưa rõ');
+    relayBtn.disabled = status === 'offline' || !deviceId;
+  }
+
+  // ---------- WebSocket ----------
+  let ws;
+  function connect() {
+    const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${scheme}://${location.host}/ws`);
+
+    ws.onopen = () => setState($('link-state'), 'up', 'Server: đã kết nối');
+    ws.onclose = () => {
+      setState($('link-state'), 'down', 'Server: mất kết nối, đang thử lại');
+      relayBtn.disabled = true;
+      setTimeout(connect, 2000);
+    };
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+
+      if (msg.type === 'snapshot') {
+        deviceId = msg.device;
+        $('device-name').textContent = deviceId;
+        setDeviceState(msg.status);
+        relayBtn.disabled = msg.status === 'offline';
+        msg.latest.forEach((r) => onReading(r.sensor, r.value, r.ts, false));
+      } else if (msg.type === 'reading' && msg.device === deviceId) {
+        onReading(msg.sensor, msg.value, msg.ts, true);
+      } else if (msg.type === 'status' && msg.device === deviceId) {
+        setDeviceState(msg.status);
+      }
+    };
+  }
+
+  relayBtn.addEventListener('click', () => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    relayOn = !relayOn; // cập nhật ngay; nếu thiết bị báo trạng thái khác thì sẽ được ghi đè
+    renderRelay();
+    ws.send(JSON.stringify({ type: 'command', relay: relayOn ? 'on' : 'off' }));
+  });
+
+  initChart();
+  connect();
+</script>
+</body>
+</html>
